@@ -4,13 +4,15 @@
 // named here — including routes added later — is refused for such keys by the
 // middleware before its handler runs. Read-only catalog GETs stay open.
 //
-// Paths are the ones the middleware sees (before next.config rewrites).
+// Paths are the ones the middleware sees (before next.config rewrites), which
+// also maps /v1/v1/* onto /api/v1/*.
+const V1 = "(api\\/|v1\\/)?v1";
 const METERED_POST_ROUTES = [
-  /^\/(api\/)?v1\/chat\/completions\/?$/,
-  /^\/(api\/)?v1\/messages\/?$/,
-  /^\/(api\/)?v1\/messages\/count_tokens\/?$/, // local estimate, no provider call
-  /^\/(api\/)?v1\/responses(\/compact)?\/?$/,
-  /^\/(api\/)?v1\/api\/chat\/?$/, // Ollama-compatible → handleChat
+  new RegExp(`^\\/${V1}\\/chat\\/completions\\/?$`),
+  new RegExp(`^\\/${V1}\\/messages\\/?$`),
+  new RegExp(`^\\/${V1}\\/messages\\/count_tokens\\/?$`), // local estimate, no provider call
+  new RegExp(`^\\/${V1}\\/responses(\\/compact)?\\/?$`),
+  new RegExp(`^\\/${V1}\\/api\\/chat\\/?$`), // Ollama-compatible → handleChat
   /^\/responses\/?$/,
   /^\/codex(\/.*)?$/,
   // Gemini generateContent → handleChat. Native TTS on the same path is refused

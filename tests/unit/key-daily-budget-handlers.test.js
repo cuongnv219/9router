@@ -230,6 +230,33 @@ describe("chat handler budget guard", () => {
     expect(mocks.handleChatCore).not.toHaveBeenCalled();
   });
 
+  it("a small cap in one field cannot hide a large one in another (max_completion_tokens:1 + max_tokens:128000)", async () => {
+    const { reserved } = await reservedFor(5, { max_completion_tokens: 1, max_tokens: 100000 }, SONNET);
+    expect(reserved).toBeGreaterThanOrEqual(100000 * OUT_SONNET);
+  });
+
+  it("cursor's fixed 32000-token cap is reserved even when the client asks for 1", async () => {
+    await db.updatePricing({ cursor: { "cursor-test-model": { input: 1, output: 10 } } });
+    const k = await db.createApiKey("cur", "m1", 5);
+    await (await chat("cursor/cursor-test-model", k.key, { max_tokens: 1 })).text();
+    const [row] = await budgetRepo.getKeyReservations(k.id);
+    expect(row.reservedUsd).toBeGreaterThanOrEqual(32000 * 10 / 1e6);
+  });
+
+  it("CJK prompts without spaces count as real input, not as a base64 blob", async () => {
+    const cjk = "这是一个很长的中文提示没有任何空格".repeat(400); // ~6.8k chars, no whitespace
+    const { reserved: withCjk } = await reservedFor(5, { max_tokens: 10, messages: [{ role: "user", content: cjk }] });
+    const { reserved: base } = await reservedFor(5, { max_tokens: 10 });
+    // gpt-4o input $2.5/M: ~6.8k CJK tokens ≈ $0.017 more than the tiny prompt.
+    expect(withCjk - base).toBeGreaterThan(6000 * 2.5 / 1e6);
+  });
+
+  it("a real base64 image still counts as a bounded blob", async () => {
+    const img = `data:image/png;base64,${"iVBORw0KGgo".repeat(20000)}`; // ~220k chars
+    const { reserved } = await reservedFor(5, { max_tokens: 10, messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: img } }] }] });
+    expect(reserved).toBeLessThan(10000 * 2.5 / 1e6);
+  });
+
   it("executors that strip the output cap (codex) reserve the model ceiling, not the client's max_tokens", async () => {
     await db.updatePricing({ codex: { "gpt-5.6-sol": { input: 1, output: 10 } } });
     const k = await db.createApiKey("cx", "m1", 5);

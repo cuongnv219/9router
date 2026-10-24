@@ -40,14 +40,19 @@ export async function resolveBudgetKey(request) {
 
 // Base64 images/files would otherwise dominate the char count and reserve
 // hundreds of thousands of phantom tokens.
+// Only base64 (optionally as a data: URL) counts as a blob. CJK prose, minified
+// JSON or long URLs also lack whitespace but are real tokens and must count in full.
+const BASE64_BLOB = /^(data:[\w.+-]+\/[\w.+-]+(;[\w=.+-]+)*;base64,)?[A-Za-z0-9+/_-]+={0,2}$/;
+const isInlineBlob = (v) => v.length >= INLINE_BLOB_MIN_CHARS && BASE64_BLOB.test(v);
+
 function estimateInputTokens(body) {
   try {
     const json = JSON.stringify(body, (_k, v) => (
-      typeof v === "string" && v.length >= INLINE_BLOB_MIN_CHARS && !/\s/.test(v.slice(0, 200))
-        ? "x".repeat(INLINE_BLOB_TOKENS * CHARS_PER_TOKEN)
-        : v
+      typeof v === "string" && isInlineBlob(v) ? "x".repeat(INLINE_BLOB_TOKENS * CHARS_PER_TOKEN) : v
     ));
-    return Math.ceil(json.length / CHARS_PER_TOKEN);
+    // CJK and other non-Latin scripts run ~1 token per character, not 1 per 3.
+    const nonAscii = json.match(/[^\x00-\x7F]/g)?.length || 0;
+    return Math.ceil((json.length - nonAscii) / CHARS_PER_TOKEN) + nonAscii;
   } catch {
     return 0;
   }
@@ -55,12 +60,12 @@ function estimateInputTokens(body) {
 
 const OUTPUT_FIELDS = ["max_output_tokens", "max_completion_tokens", "max_tokens"];
 
+// The LARGEST cap the client sent: translators pick different fields
+// (openai-to-claude reads max_tokens, Responses reads max_output_tokens), so a
+// small value in one field must not hide a large one in another.
 function requestedMaxOutput(body) {
-  for (const f of OUTPUT_FIELDS) {
-    const v = Number(body?.[f]);
-    if (Number.isFinite(v) && v > 0) return Math.floor(v);
-  }
-  return null;
+  const caps = OUTPUT_FIELDS.map((f) => Number(body?.[f])).filter((v) => Number.isFinite(v) && v > 0);
+  return caps.length ? Math.floor(Math.max(...caps)) : null;
 }
 
 const hasReasoning = (body, thinkingForced) => thinkingForced
@@ -82,12 +87,19 @@ const hasReasoning = (body, thinkingForced) => thinkingForced
 // it; grok-cli drops the Chat fields). For these the client's number is void,
 // so the reservation covers the model ceiling.
 const OUTPUT_CAP_STRIPPED = new Set(["codex", "grok-cli"]);
+// Translators/executors that REPLACE the client's cap with a fixed value
+// (openai-to-cursor sends DEFAULT_MIN_TOKENS; antigravity image models 8192).
+const OUTPUT_CAP_FIXED = { cursor: DEFAULT_MIN_TOKENS, antigravity: 8192 };
 
+// ponytail: sized from the client body against known translator/executor rules; the exact
+// fix is to size the reservation from the post-translation body inside chatCore — do that if a
+// new provider rewrites the cap and slips past these tables.
 function maxUpstreamOutput(body, provider, model, thinkingForced) {
   const ceiling = getCapabilitiesForModel(provider, model).maxOutput;
   if (OUTPUT_CAP_STRIPPED.has(provider)) return ceiling || DEFAULT_MAX_TOKENS;
   const requested = requestedMaxOutput(body);
-  let out = Math.max(requested ?? 0, body.max_tokens == null ? DEFAULT_MAX_TOKENS : 0);
+  // No cap in ANY field → the upstream default applies (up to DEFAULT_MAX_TOKENS).
+  let out = Math.max(requested ?? DEFAULT_MAX_TOKENS, OUTPUT_CAP_FIXED[provider] ?? 0);
   if (Array.isArray(body.tools) && body.tools.length > 0) out = Math.max(out, DEFAULT_MIN_TOKENS);
   const thinkingBudget = Number(body.thinking?.budget_tokens) || 0;
   if (thinkingBudget > 0) out = Math.max(out, thinkingBudget + 1024);

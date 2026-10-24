@@ -84,6 +84,23 @@ describe("dashboard guard public LLM API access", () => {
       }
     });
 
+    it("covers every next.config rewrite into /api/v1* (a missed one skips auth and the budget gate)", async () => {
+      const fs = await import("node:fs");
+      const cfg = fs.readFileSync(new URL("../../next.config.mjs", import.meta.url), "utf8");
+      const sources = [...cfg.matchAll(/source:\s*"([^"]+)",\s*destination:\s*"\/api\/v1[^"]*"/g)].map((m) => m[1].replace(/\/:path\*$/, "/x"));
+      expect(sources.length).toBeGreaterThan(5);
+      mocks.validateApiKey.mockImplementation(async (k) => k !== "sk-nobody");
+      for (const s of sources) {
+        const r = await proxy(post(s, "sk-nobody"));
+        expect(r.status, s).toBe(401);
+      }
+      expect((await proxy(post("/systemone", "sk-budget"))).status).toBe(403);
+    });
+
+    it("allows the /v1/v1 rewrite form for metered routes", async () => {
+      expect(await proxy(post("/v1/v1/chat/completions", "sk-budget"))).toBe(mocks.nextResponse);
+    });
+
     it("keeps catalog GETs open and leaves unlimited keys untouched", async () => {
       expect(await proxy(get("/v1/models", "sk-budget"))).toBe(mocks.nextResponse);
       expect(await proxy(post("/v1/embeddings", "sk-open"))).toBe(mocks.nextResponse);
