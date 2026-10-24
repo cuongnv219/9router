@@ -115,7 +115,9 @@ export function formatDoneLine({ usage, latency }) {
   return `DONE ${latency?.total ?? 0}ms${ttftStr} · ${inStr} · OUT ${outTok}`;
 }
 
-export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, endpoint, label = "USAGE", silent = false }) {
+// budgetReservationId: opaque id from the app's per-key budget guard; the usage
+// write settles it with the real cost (src/lib/db/repos/budgetRepo.js).
+export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, budgetReservationId, endpoint, label = "USAGE", silent = false }) {
   if (!tokens || typeof tokens !== "object") return;
 
   const inTokens = tokens.input_tokens ?? tokens.prompt_tokens ?? 0;
@@ -143,6 +145,7 @@ export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, 
     timestamp: new Date().toISOString(),
     connectionId: connectionId || undefined,
     apiKey: apiKey || undefined,
+    budgetReservationId: budgetReservationId || undefined,
     endpoint: endpoint || null
   }).catch(() => {});
 }

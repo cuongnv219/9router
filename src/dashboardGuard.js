@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { getSettings, validateApiKey } from "@/lib/localDb";
+import { getSettings, validateApiKey, getApiKeyByKey } from "@/lib/localDb";
+import { isBudgetMeteredRoute, UNMETERED_ENDPOINT_MESSAGE } from "@/shared/utils/budgetRoutes.js";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { verifyDashboardAuthToken } from "@/lib/auth/dashboardSession";
 import { hasTrustedPeerHeaders } from "@/lib/auth/trustedPeer";
+import { extractClientApiKey } from "@/shared/utils/clientApiKey.js";
 
 const CLI_TOKEN_HEADER = "x-9r-cli-token";
 const CLI_TOKEN_SALT = "9r-cli-auth";
@@ -138,20 +140,25 @@ function isPublicLlmApi(pathname) {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-function extractApiKey(request) {
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader?.startsWith("Bearer ")) return authHeader.slice(7);
-  const apiKeyHeader = request.headers.get("x-api-key");
-  if (apiKeyHeader) return apiKeyHeader;
-  const googleApiKeyHeader = request.headers.get("x-goog-api-key");
-  if (googleApiKeyHeader) return googleApiKeyHeader;
-  return request.nextUrl.searchParams?.get("key") || null;
-}
+// One extractor for "which key is this request": the key authorized here must be
+// the key per-key access control and the daily budget are applied to.
+const extractApiKey = extractClientApiKey;
 
 async function hasValidApiKey(request) {
   const apiKey = extractApiKey(request);
   if (!apiKey) return false;
   return await validateApiKey(apiKey);
+}
+
+async function hasBudgetLimitedKey(request) {
+  const apiKey = extractApiKey(request);
+  if (!apiKey) return false;
+  try {
+    return (await getApiKeyByKey(apiKey))?.dailyBudgetUsd != null;
+  } catch {
+    // Unknown budget state: refuse unmetered routes rather than risk spend.
+    return true;
+  }
 }
 
 async function canAccessPublicLlmApi(request) {
@@ -222,8 +229,15 @@ export async function proxy(request) {
   }
 
   if (isPublicLlmApi(pathname)) {
-    if (await canAccessPublicLlmApi(request)) return NextResponse.next();
-    return NextResponse.json({ error: "API key required for remote API access" }, { status: 401 });
+    if (!(await canAccessPublicLlmApi(request))) {
+      return NextResponse.json({ error: "API key required for remote API access" }, { status: 401 });
+    }
+    // Budget-limited keys may only reach routes that meter spend (allow-list):
+    // a new or unmetered inference route must not become an uncapped bypass.
+    if (!isBudgetMeteredRoute(request.method, pathname) && await hasBudgetLimitedKey(request)) {
+      return NextResponse.json({ error: { message: UNMETERED_ENDPOINT_MESSAGE, code: "budget_endpoint_not_metered" } }, { status: 403 });
+    }
+    return NextResponse.next();
   }
 
   // Deny-by-default for /api/* — public allow-list bypasses, everything else requires auth.

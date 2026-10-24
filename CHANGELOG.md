@@ -1,3 +1,12 @@
+# Unreleased
+
+## Features
+- **API keys**: per-key daily USD budget (`dailyBudgetUsd`, empty = unlimited). Days are calendar days in Asia/Ho_Chi_Minh (reset 00:00 UTC+7, no cron); past days stay as history. Every upstream attempt (account retry, combo member, fusion panelist) atomically reserves an upper-bound estimate in SQLite before calling the provider and settles the real cost in the same transaction as the usage row, so concurrent requests and fallback cannot spend past the limit. The estimate covers the largest output the upstream can be asked for after translation (tool calls → 32000, thinking → budget+1024, capped at the model's maxOutput); a request that does not fit what is left gets HTTP 429 with `Retry-After` until the next Vietnam midnight and no provider call. Disconnected/usage-less streams settle on an estimate (free when no content was generated); abandoned reservations are charged, not refunded. Executors that drop the client's output cap (Codex, grok-cli) reserve the model's full output ceiling. Budget-limited keys are refused (fail closed) for unpriced models and, via a middleware allow-list of metered routes, for every other inference POST (embeddings, images, audio, video, search, fetch, System One, and any route added later); Gemini native TTS is refused inside its route. They also skip the System One smart router
+- **API keys**: Endpoint page shows today's spend / budget / remaining / % and a per-key history (by day, by model, per request); `PUT /api/keys/[id]` accepts `name` and `dailyBudgetUsd`; new `GET /api/keys/[id]/usage` and `GET /api/audit-log` (key create/update/delete)
+
+## Security
+- **API keys**: the middleware and the per-key policies (access control, budget) now read the client key with one shared extractor, so the key that is authorized is always the key that is restricted and metered
+
 # v0.5.109 (2026-10-23)
 
 ## Features

@@ -3,7 +3,7 @@
 // pre-change safety backup in migrate.js: when the stored version is lower,
 // one lightweight DB backup is taken before applying schema changes. Forgetting
 // to bump only skips that backup — it does NOT break the additive auto-sync.
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const PRAGMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -87,8 +87,57 @@ export const TABLES = {
       // syncSchemaFromTables() on boot; existing rows read as unrestricted (0).
       accessRestricted: "INTEGER DEFAULT 0",
       accessAllow: "TEXT",
+      // Daily USD budget (see repos/budgetRepo.js). NULL = unlimited, so
+      // existing keys keep today's behaviour.
+      dailyBudgetUsd: "REAL",
     },
     indexes: ["CREATE INDEX IF NOT EXISTS idx_ak_key ON apiKeys(key)"],
+  },
+  // One row per key per budget day (Asia/Ho_Chi_Minh). Old days stay as history.
+  apiKeyBudgetDays: {
+    columns: {
+      apiKeyId: "TEXT NOT NULL",
+      day: "TEXT NOT NULL",
+      spentUsd: "REAL NOT NULL DEFAULT 0",
+      reservedUsd: "REAL NOT NULL DEFAULT 0",
+      requests: "INTEGER NOT NULL DEFAULT 0",
+    },
+    primaryKey: "PRIMARY KEY (apiKeyId, day)",
+  },
+  // One row per upstream attempt of a budget-limited key: the ledger and the
+  // per-key request history.
+  apiKeyReservations: {
+    columns: {
+      id: "TEXT PRIMARY KEY",
+      apiKeyId: "TEXT NOT NULL",
+      day: "TEXT NOT NULL",
+      status: "TEXT NOT NULL",
+      reservedUsd: "REAL NOT NULL",
+      actualUsd: "REAL",
+      costSource: "TEXT",
+      provider: "TEXT",
+      model: "TEXT",
+      endpoint: "TEXT",
+      promptTokens: "INTEGER",
+      completionTokens: "INTEGER",
+      cachedTokens: "INTEGER",
+      createdAt: "TEXT NOT NULL",
+      settledAt: "TEXT",
+    },
+    indexes: [
+      "CREATE INDEX IF NOT EXISTS idx_akr_key_day ON apiKeyReservations(apiKeyId, day)",
+      "CREATE INDEX IF NOT EXISTS idx_akr_key_status ON apiKeyReservations(apiKeyId, status, createdAt)",
+    ],
+  },
+  adminAuditLog: {
+    columns: {
+      id: "INTEGER PRIMARY KEY AUTOINCREMENT",
+      at: "TEXT NOT NULL",
+      action: "TEXT NOT NULL",
+      targetId: "TEXT",
+      detail: "TEXT",
+    },
+    indexes: ["CREATE INDEX IF NOT EXISTS idx_aal_at ON adminAuditLog(at DESC)"],
   },
   combos: {
     columns: {
