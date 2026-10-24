@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
+import { settleInTx } from "./budgetRepo.js";
 
 function maskApiKey(key) {
   if (!key || typeof key !== "string") return null;
@@ -256,6 +257,11 @@ export async function saveRequestUsage(entry) {
     // All 3 writes (history insert, daily upsert, lifetime counter) in ONE transaction.
     // better-sqlite3 is sync → no JS yield mid-transaction → no race in same process.
     db.transaction(() => {
+      // Settle the key's budget reservation with the real cost before the dedupe
+      // below can return early: settleInTx is idempotent per reservation.
+      if (entry.budgetReservationId) {
+        settleInTx(db, { reservationId: entry.budgetReservationId, actualUsd: entry.cost, costSource: "provider_usage", tokens });
+      }
       const existing = db.get(
         `SELECT id, endpoint FROM usageHistory
          WHERE timestamp = ?

@@ -19,6 +19,7 @@ import StatusAlert from "./components/StatusAlert";
 import Tooltip from "./components/Tooltip";
 import SecurityWarning from "./components/SecurityWarning";
 import KeyAccessControls from "./components/KeyAccessControls";
+import KeyBudgetControls from "./components/KeyBudgetControls";
 export default function APIPageClient({ machineId }) {
   const [keys, setKeys] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -675,6 +676,24 @@ export default function APIPageClient({ machineId }) {
     }
   };
 
+  // Save a key's daily USD budget (null = unlimited). Returns true or an error message.
+  const handleUpdateKeyBudget = async (id, dailyBudgetUsd) => {
+    try {
+      const res = await fetch(`/api/keys/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dailyBudgetUsd }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return data.error || `HTTP ${res.status}`;
+      await fetchData();
+      return true;
+    } catch (error) {
+      console.log("Error updating key budget:", error);
+      return "Network error";
+    }
+  };
+
   // Save a key's access (restricted flag + allow list).
   const handleUpdateKeyAccess = async (id, access) => {
     try {
@@ -1056,6 +1075,10 @@ export default function APIPageClient({ machineId }) {
                   {key.isActive === false && (
                     <p className="text-xs text-orange-500 mt-1">Paused</p>
                   )}
+                  <KeyBudgetControls
+                    apiKey={key}
+                    onChange={(dailyBudgetUsd) => handleUpdateKeyBudget(key.id, dailyBudgetUsd)}
+                  />
                   <KeyAccessControls
                     apiKey={key}
                     onChange={(access) => handleUpdateKeyAccess(key.id, access)}

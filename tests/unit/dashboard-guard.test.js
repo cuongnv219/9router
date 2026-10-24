@@ -23,6 +23,7 @@ vi.mock("next/server", () => ({
 vi.mock("@/lib/localDb", () => ({
   getSettings: mocks.getSettings,
   validateApiKey: mocks.validateApiKey,
+  getApiKeyByKey: async (k) => (k === "sk-budget" ? { id: "b", dailyBudgetUsd: 5 } : k === "sk-open" ? { id: "o", dailyBudgetUsd: null } : null),
 }));
 
 vi.mock("@/shared/utils/machineId", () => ({
@@ -61,6 +62,32 @@ describe("dashboard guard public LLM API access", () => {
     mocks.validateApiKey.mockResolvedValue(false);
     mocks.getConsistentMachineId.mockResolvedValue("cli-token");
     mocks.verifyDashboardAuthToken.mockResolvedValue(false);
+  });
+
+  describe("budget-limited keys: allow-list of metered routes", () => {
+    const post = (p, key) => ({ ...request(p, { authorization: `Bearer ${key}` }), method: "POST" });
+    const get = (p, key) => ({ ...request(p, { authorization: `Bearer ${key}` }), method: "GET" });
+    beforeEach(() => mocks.validateApiKey.mockResolvedValue(true));
+
+    it("lets metered chat routes through", async () => {
+      for (const p of ["/v1/chat/completions", "/v1/messages", "/v1/responses", "/v1/responses/compact", "/api/v1/chat/completions",
+        "/v1/api/chat", "/responses", "/codex/responses", "/v1beta/models/gemini-2.5-pro:streamGenerateContent", "/v1/messages/count_tokens"]) {
+        expect(await proxy(post(p, "sk-budget")), p).toBe(mocks.nextResponse);
+      }
+    });
+
+    it("refuses every other POST — including routes that do not exist yet", async () => {
+      for (const p of ["/v1/embeddings", "/v1/images/generations", "/v1/audio/speech", "/v1/audio/transcriptions",
+        "/v1/videos/generations", "/v1/search", "/v1/web/fetch", "/v1/systemone", "/v1/some-future-endpoint", "/api/v1/embeddings"]) {
+        const r = await proxy(post(p, "sk-budget"));
+        expect(r.status, p).toBe(403);
+      }
+    });
+
+    it("keeps catalog GETs open and leaves unlimited keys untouched", async () => {
+      expect(await proxy(get("/v1/models", "sk-budget"))).toBe(mocks.nextResponse);
+      expect(await proxy(post("/v1/embeddings", "sk-open"))).toBe(mocks.nextResponse);
+    });
   });
 
   it("allows loopback public LLM API without API key", async () => {
@@ -277,6 +304,13 @@ describe("dashboard guard local-only access", () => {
     expect(response.status).toBe(403);
   });
 
+  it("keeps key management usable when requireLogin=false (the dashboard has no auth cookie then)", async () => {
+    mocks.getSettings.mockResolvedValue({ requireLogin: false });
+    for (const p of ["/api/keys", "/api/keys/k1", "/api/keys/k1/usage", "/api/audit-log"]) {
+      expect(await proxy(request(p, { host: "localhost:20128" }))).toBe(mocks.nextResponse);
+    }
+  });
+
   it("allows local-only route with valid CLI token", async () => {
     const response = await proxy(request("/api/mcp/filesystem/sse", {
       host: "router.example.com",
@@ -304,5 +338,11 @@ describe("dashboard guard helpers", () => {
     });
 
     expect(__test__.extractApiKey(apiRequest)).toBe("header-key");
+  });
+
+  it("authorizes the same key the per-key policies (access, budget) meter", async () => {
+    const { extractClientApiKey } = await import("../../src/shared/utils/clientApiKey.js");
+    expect(__test__.extractApiKey).toBe(extractClientApiKey);
+    expect(__test__.extractApiKey(request("/v1beta/models?key=query-key", {}))).toBe("query-key");
   });
 });
