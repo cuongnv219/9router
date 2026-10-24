@@ -17,6 +17,8 @@ export default defineConfig({
     maxConcurrency: 60,
     // Suppress noisy console output from handlers under test
     silent: false,
+    // Never let a test read or write the real ~/.9router.
+    setupFiles: ["./setup/isolate-data-dir.js"],
   },
   resolve: {
     // Use array form so subpath aliases (e.g. "@/lib/db/index.js") resolve correctly.
