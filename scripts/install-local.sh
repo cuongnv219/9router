@@ -64,14 +64,11 @@ npm run cli:pack
 if [ -d "$DATA" ]; then
   say "Backing up $DATA"
   BACKUP="$HOME/9router-backup-$(date +%Y%m%d-%H%M%S)"
-  # Skip the downloadable runtime/ and logs/; everything that holds state is copied.
-  mkdir -p "$BACKUP"
-  for item in "$DATA"/* "$DATA"/.[!.]*; do
-    [ -e "$item" ] || continue
-    case "$(basename "$item")" in runtime|logs) continue ;; esac
-    cp -R "$item" "$BACKUP/"
-  done
-  echo "backup: $BACKUP"
+  # SQLite online backup: consistent even though the old 9router is still running.
+  # stdout is the backup path (printed below); errors still reach the terminal.
+  NODE_NO_WARNINGS=1 node "$REPO/scripts/backup-data-dir.mjs" "$DATA" "$BACKUP" >/dev/null \
+    || die "Backup of $DATA failed; nothing was installed. Stop 9router and retry."
+  echo "backup: $BACKUP (database integrity checked)"
 else
   echo "No existing data at $DATA (fresh install)."
 fi

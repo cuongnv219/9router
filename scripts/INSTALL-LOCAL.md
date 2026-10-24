@@ -15,7 +15,7 @@ The script runs these steps, in order:
 1. Checks that Node.js is 22.5 or newer.
 2. Updates `master` with `git pull --ff-only`. It stops if you have uncommitted changes.
 3. Installs dependencies and builds the CLI package `9router-<version>.tgz` (a few minutes).
-4. Backs up `~/.9router` (your keys, providers, combos, usage and budgets) to `~/9router-backup-<date-time>`.
+4. Backs up `~/.9router` (your keys, providers, combos, usage and budgets) to `~/9router-backup-<date-time>`. The database is copied with SQLite's online backup and integrity-checked, so this is safe even while your current 9router is still running. If the backup fails, nothing is installed.
 5. Installs the package globally, replacing any existing `9router`, and checks the version.
 6. Starts `9router --skip-update` and opens the dashboard at http://localhost:20128/dashboard.
 
@@ -64,10 +64,20 @@ npm install -g 9router@<previous-version>   # e.g. 9router@0.5.40
 ```
 
 The script prints the version it replaced. Older versions ignore the budget
-columns and keep working with the same data. To restore a backup instead, stop
-9router and copy it back:
+columns and keep working with the same data.
+
+> **⚠️ Rolling back removes every daily budget limit.** Versions without this
+> feature do not know about budgets, so every key becomes **unlimited** from the
+> first request. If you have handed budget-limited keys to other people, pause
+> or delete those keys first (Dashboard → Endpoint) or don't roll back.
+
+To restore a backup instead, **stop 9router first** (quit the tray icon too),
+then replace the data folder. Remove the old database's `-wal`/`-shm` files: the
+backup's database is a self-contained snapshot, and leftover WAL files from the
+live database would corrupt it.
 
 ```bash
+rm -f ~/.9router/db/data.sqlite-wal ~/.9router/db/data.sqlite-shm
 cp -R ~/9router-backup-<date-time>/. ~/.9router/
 ```
 
