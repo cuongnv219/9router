@@ -85,7 +85,7 @@ export default function KeyBudgetControls({ apiKey, onChange }) {
             className="flex-1"
           />
           <Button size="sm" onClick={save}>Save</Button>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+          <Button size="sm" variant="ghost" onClick={() => { setEditing(false); setError(""); }}>Cancel</Button>
         </div>
       )}
       {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
@@ -98,7 +98,7 @@ export default function KeyBudgetControls({ apiKey, onChange }) {
             <p className="text-text-muted">Days reset at 00:00 Asia/Ho_Chi_Minh.</p>
             <section>
               <h3 className="font-medium mb-1">By day</h3>
-              <table className="w-full">
+              <table className="w-full [&_td]:pr-3 [&_th]:pr-3">
                 <thead><tr className="text-left text-text-muted"><th>Day</th><th>Spent</th><th>Requests</th></tr></thead>
                 <tbody>
                   {history.days.slice(0, 14).map((d) => (
@@ -110,7 +110,7 @@ export default function KeyBudgetControls({ apiKey, onChange }) {
             {history.byModel.length > 0 && (
               <section>
                 <h3 className="font-medium mb-1">By model ({history.day})</h3>
-                <table className="w-full">
+                <table className="w-full [&_td]:pr-3 [&_th]:pr-3">
                   <thead><tr className="text-left text-text-muted"><th>Provider/model</th><th>Requests</th><th>Cost</th></tr></thead>
                   <tbody>
                     {history.byModel.map((m) => (
@@ -122,7 +122,7 @@ export default function KeyBudgetControls({ apiKey, onChange }) {
             )}
             <section>
               <h3 className="font-medium mb-1">Requests ({history.day})</h3>
-              <table className="w-full">
+              <table className="w-full [&_td]:pr-3 [&_th]:pr-3">
                 <thead><tr className="text-left text-text-muted"><th>Time</th><th>Model</th><th>Status</th><th>Cost</th></tr></thead>
                 <tbody>
                   {history.requests.map((r) => (
