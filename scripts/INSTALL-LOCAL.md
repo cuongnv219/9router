@@ -85,7 +85,8 @@ cp -R ~/9router-backup-<date-time>/. ~/.9router/
 
 | Problem | Fix |
 |---|---|
-| `9router on PATH reports … expected …` | Another `9router` comes first on your PATH (e.g. a different Node version manager). Check `which -a 9router`. |
+| `… reports …, expected …` | The global install did not take. Check `npm prefix -g` and rerun. |
+| Warning: `9router` on your PATH is … not this build | Another Node install (e.g. an older nvm version) comes first on PATH. The script still starts the new build; for your shell, `nvm alias default <version>` and open a new terminal. Check `which -a 9router`. |
 | `Uncommitted changes` | Commit or stash them, or use `--no-pull`. |
 | Port already in use | The CLI stops older 9router processes itself; otherwise use `--port`. |
 | Dashboard shows no keys/providers | 9router is reading a different data folder. Check `DATA_DIR`. |

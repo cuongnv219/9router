@@ -58,7 +58,12 @@ say "Building the CLI package (takes a few minutes)"
 VERSION="$(node -p 'require("./cli/package.json").version')"
 PKG="$REPO/9router-$VERSION.tgz"
 rm -f "$PKG"
-npm run cli:pack
+# build-cli.js syncs the CLI version into the root package.json; undo that so the
+# next run's clean-tree check passes (only when the file was clean before).
+ROOT_PKG_CLEAN=0; git diff --quiet -- package.json && ROOT_PKG_CLEAN=1
+PACK_OK=1; npm run cli:pack || PACK_OK=0
+[ "$ROOT_PKG_CLEAN" -eq 1 ] && git checkout -- package.json
+[ "$PACK_OK" -eq 1 ] || die "CLI build failed (see output above)."
 [ -f "$PKG" ] || die "Build finished but $PKG was not produced."
 
 if [ -d "$DATA" ]; then
@@ -78,9 +83,19 @@ INSTALLED="$(npm ls -g --depth=0 9router 2>/dev/null | sed -n 's/.*9router@//p' 
 [ -n "$INSTALLED" ] && echo "replacing installed 9router@$INSTALLED"
 npm install -g --no-audit --no-fund "$PKG"
 hash -r
-RUNNING_VERSION="$(9router --version 2>/dev/null || true)"
-[ "$RUNNING_VERSION" = "$VERSION" ] || die "9router on PATH reports '$RUNNING_VERSION', expected $VERSION. Check: which 9router"
-echo "9router $RUNNING_VERSION at $(command -v 9router)"
+# Check the binary npm just installed, not whatever `9router` PATH finds first:
+# with several Node installs (nvm + Homebrew) those can differ.
+BIN="$(npm prefix -g)/bin/9router"
+# Last line only: a first run may print tray-download progress to stdout.
+RUNNING_VERSION="$("$BIN" --version 2>/dev/null | tail -n1 || true)"
+[ "$RUNNING_VERSION" = "$VERSION" ] || die "$BIN reports '$RUNNING_VERSION', expected $VERSION."
+echo "9router $RUNNING_VERSION at $BIN"
+ON_PATH="$(command -v 9router || true)"
+if [ "$ON_PATH" != "$BIN" ]; then
+  printf '\n\033[1;33mWarning: `9router` on your PATH is %s (%s), not this build.\033[0m\n' \
+    "${ON_PATH:-missing}" "$([ -n "$ON_PATH" ] && "$ON_PATH" --version 2>/dev/null)"
+  echo "Put $(dirname "$BIN") first on PATH (e.g. nvm alias default $(node -v)), or run $BIN directly."
+fi
 
 cat <<EOF
 
@@ -96,7 +111,7 @@ if [ "$START" -eq 1 ]; then
   ARGS=(--skip-update)
   [ "$TRAY" -eq 1 ] && ARGS+=(--tray)
   [ -n "$PORT" ] && ARGS+=(--port "$PORT")
-  say "Starting: 9router ${ARGS[*]}"
+  say "Starting: $BIN ${ARGS[*]}"
   # The CLI stops any older 9router process before it starts the new one.
-  exec 9router "${ARGS[@]}"
+  exec "$BIN" "${ARGS[@]}"
 fi
